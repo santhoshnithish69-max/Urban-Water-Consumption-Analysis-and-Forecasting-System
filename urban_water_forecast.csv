@@ -1,0 +1,7 @@
+month,predicted_consumption_megaliters,seasonal_effect_megaliters,trend_status
+2026-11,594.89,-6.51,Decreasing
+2026-12,591.64,-11.9,Decreasing
+2027-01,592.64,-13.04,Increasing
+2027-02,596.39,-11.43,Increasing
+2027-03,604.14,-5.81,Increasing
+2027-04,611.89,-0.2,Increasing

@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Urban Water Consumption Analysis and Forecasting System. Final Year Engineering Project featuring time-series trend analysis, monthly seasonal effects, dynamic statistics, and interactive Chart.js visualization.">
+  <title>Urban Water Consumption Analysis &amp; Forecasting System</title>
+  
+  <!-- Modern Typography: Inter & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons for Water, Charts, Analytics -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  
+  <!-- Chart.js for High-Performance Interactive Graphics -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  
+  <!-- Core Application Stylesheet -->
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+  <!-- Top Navigation Header -->
+  <header class="navbar" id="top-nav">
+    <div class="nav-container">
+      <div class="nav-brand">
+        <div class="brand-icon-wrapper">
+          <i class="fa-solid fa-droplet brand-water-drop"></i>
+          <span class="water-ripple"></span>
+        </div>
+        <div class="brand-text">
+          <span class="brand-title">AquaPulse <span class="brand-highlight">Analytics</span></span>
+          <span class="brand-subtitle">Urban Water Demand Forecasting</span>
+        </div>
+      </div>
+
+      <nav class="nav-links">
+        <a href="#dashboard-overview" class="nav-link active"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+        <a href="#chart-section" class="nav-link"><i class="fa-solid fa-chart-line"></i> Time-Series Chart</a>
+        <a href="#seasonality-section" class="nav-link"><i class="fa-solid fa-cloud-sun-rain"></i> Seasonality</a>
+        <a href="#forecast-section" class="nav-link"><i class="fa-solid fa-table-list"></i> Forecast Table</a>
+        <a href="#upload-section" class="nav-link"><i class="fa-solid fa-file-arrow-up"></i> Upload CSV</a>
+        <a href="#methodology-section" class="nav-link"><i class="fa-solid fa-circle-info"></i> Project Info</a>
+      </nav>
+
+      <div class="nav-actions">
+        <span class="system-status-badge" id="system-status">
+          <span class="pulse-dot"></span> Live Model Active
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-content">
+    
+    <!-- Hero / Title Section -->
+    <section class="hero-banner" id="dashboard-overview">
+      <div class="hero-content">
+        <div class="hero-badge">
+          <i class="fa-solid fa-graduation-cap"></i> Final-Year Engineering Project
+        </div>
+        <h1 class="hero-title">Urban Water Consumption Analysis &amp; Forecasting System</h1>
+        <p class="hero-description">
+          A full-stack municipal time-series intelligence platform leveraging linear trend regression and monthly seasonal decomposition to predict urban water demand, optimize reservoir reserves, and support sustainable infrastructure planning.
+        </p>
+        <div class="hero-metadata">
+          <span class="meta-item" id="dataset-source-label">
+            <i class="fa-solid fa-database"></i> Source: <strong id="dataset-name">Default Municipal Sample (48 Months)</strong>
+          </span>
+          <span class="meta-item">
+            <i class="fa-solid fa-calendar-range"></i> Coverage: <strong id="dataset-range">Loading...</strong>
+          </span>
+          <span class="meta-item">
+            <i class="fa-solid fa-chart-pie"></i> Evaluation: <strong id="mae-badge">MAE: -- ML</strong>
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Global Notification / Toast Container -->
+    <div id="alert-container" class="alert-container" style="display: none;">
+      <div class="alert-content" id="alert-content">
+        <i class="fa-solid fa-circle-check" id="alert-icon"></i>
+        <span id="alert-message">Alert message</span>
+        <button class="alert-close" onclick="closeAlert()" aria-label="Close message">&times;</button>
+      </div>
+    </div>
+
+    <!-- 5 Dynamic KPI Statistic Cards -->
+    <section class="metrics-grid" aria-label="Key Performance Indicators">
+      
+      <!-- Card 1: Total Historical Consumption -->
+      <div class="metric-card card-total">
+        <div class="metric-header">
+          <div class="metric-icon-box blue-soft">
+            <i class="fa-solid fa-water"></i>
+          </div>
+          <span class="metric-label">TOTAL HISTORICAL</span>
+        </div>
+        <div class="metric-body">
+          <div class="metric-value-wrapper">
+            <span class="metric-value" id="kpi-total">--</span>
+            <span class="metric-unit">Megaliters</span>
+          </div>
+          <p class="metric-subtext" id="kpi-total-sub">Across 48 recorded months</p>
+        </div>
+        <div class="card-wave-bg"></div>
+      </div>
+
+      <!-- Card 2: Average Monthly Consumption -->
+      <div class="metric-card card-avg">
+        <div class="metric-header">
+          <div class="metric-icon-box teal-soft">
+            <i class="fa-solid fa-chart-column"></i>
+          </div>
+          <span class="metric-label">AVERAGE MONTHLY</span>
+        </div>
+        <div class="metric-body">
+          <div class="metric-value-wrapper">
+            <span class="metric-value" id="kpi-avg">--</span>
+            <span class="metric-unit">ML / Month</span>
+          </div>
+          <p class="metric-subtext" id="kpi-avg-sub">Historical baseline demand</p>
+        </div>
+        <div class="card-wave-bg"></div>
+      </div>
+
+      <!-- Card 3: Next Month's Predicted Consumption (Featured) -->
+      <div class="metric-card card-forecast card-featured">
+        <div class="metric-header">
+          <div class="metric-icon-box primary-glow">
+            <i class="fa-solid fa-wand-magic-sparkles"></i>
+          </div>
+          <span class="metric-label">NEXT MONTH FORECAST</span>
+        </div>
+        <div class="metric-body">
+          <div class="metric-value-wrapper">
+            <span class="metric-value highlight" id="kpi-next">--</span>
+            <span class="metric-unit">Megaliters</span>
+          </div>
+          <div class="metric-trend-pill" id="kpi-next-pill">
+            <i class="fa-solid fa-arrow-trend-up"></i> <span id="kpi-next-diff">Calculating...</span>
+          </div>
+          <p class="metric-subtext" id="kpi-next-month">Target: Upcoming month</p>
+        </div>
+        <div class="card-water-glow"></div>
+      </div>
+
+      <!-- Card 4: Mean Absolute Error (MAE) -->
+      <div class="metric-card card-mae">
+        <div class="metric-header">
+          <div class="metric-icon-box indigo-soft">
+            <i class="fa-solid fa-bullseye"></i>
+          </div>
+          <span class="metric-label">MODEL ERROR (MAE)</span>
+        </div>
+        <div class="metric-body">
+          <div class="metric-value-wrapper">
+            <span class="metric-value" id="kpi-mae">--</span>
+            <span class="metric-unit">ML</span>
+          </div>
+          <p class="metric-subtext" id="kpi-mae-sub">Real test error (last 6 months)</p>
+        </div>
+        <div class="card-wave-bg"></div>
+      </div>
+
+      <!-- Card 5: Long-Term Trend Vector -->
+      <div class="metric-card card-trend">
+        <div class="metric-header">
+          <div class="metric-icon-box amber-soft">
+            <i class="fa-solid fa-arrow-trend-up" id="trend-icon"></i>
+          </div>
+          <span class="metric-label">LONG-TERM TREND</span>
+        </div>
+        <div class="metric-body">
+          <div class="metric-value-wrapper">
+            <span class="metric-value" id="kpi-trend">--</span>
+          </div>
+          <p class="metric-subtext" id="kpi-trend-sub">Slope: +0.00 ML/month</p>
+        </div>
+        <div class="card-wave-bg"></div>
+      </div>
+
+    </section>
+
+    <!-- Main Chart Section -->
+    <section class="panel-section" id="chart-section">
+      <div class="panel-card chart-container-card">
+        <div class="panel-header">
+          <div class="header-titles">
+            <div class="badge-tag"><i class="fa-solid fa-wave-square"></i> Time-Series Visualization</div>
+            <h2>Actual vs. Forecast Water Consumption</h2>
+            <p class="panel-sub">
+              Blue solid curve represents validated historical municipal consumption. Orange dashed curve displays the 6-month predictive trajectory computed via linear trend and seasonal residuals.
+            </p>
+          </div>
+          <div class="chart-controls">
+            <div class="filter-group" role="group" aria-label="Timeframe filters">
+              <button class="filter-btn active" id="btn-filter-all" onclick="setTimeframeFilter('all')">All History</button>
+              <button class="filter-btn" id="btn-filter-24" onclick="setTimeframeFilter(24)">Last 24 Months</button>
+              <button class="filter-btn" id="btn-filter-12" onclick="setTimeframeFilter(12)">Last 12 Months</button>
+            </div>
+            <a href="/api/download/forecast" class="btn btn-secondary btn-sm" id="btn-download-forecast-chart">
+              <i class="fa-solid fa-download"></i> Download CSV
+            </a>
+          </div>
+        </div>
+
+        <!-- Custom Visual Legend -->
+        <div class="chart-custom-legend">
+          <div class="legend-item">
+            <span class="legend-line actual-line"></span>
+            <span class="legend-text"><strong>Actual Consumption</strong> (Historical Megaliters)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-line forecast-line"></span>
+            <span class="legend-text"><strong>Predicted Outlook</strong> (Next 6 Months)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-marker start-marker"></span>
+            <span class="legend-text"><strong>Forecast Horizon</strong> (Inception Boundary)</span>
+          </div>
+        </div>
+
+        <!-- Chart Canvas Container -->
+        <div class="canvas-wrapper">
+          <canvas id="consumptionChart" aria-label="Interactive line graph of historical and forecasted urban water consumption"></canvas>
+          <div id="chart-loading-overlay" class="chart-loading-overlay">
+            <div class="spinner"></div>
+            <span>Calculating time-series model...</span>
+          </div>
+        </div>
+
+        <div class="chart-footer-meta">
+          <span><i class="fa-solid fa-info-circle"></i> Vertical dashed boundary indicates where historical data ends and the 6-month statistical forecast begins.</span>
+          <span id="chart-point-count">Showing 48 historical + 6 forecast months</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Two-Column Grid: Seasonality Breakdown & 6-Month Forecast Table -->
+    <section class="grid-two-col" id="forecast-section">
+      
+      <!-- Left Column: Forecast Prediction Table -->
+      <div class="panel-card">
+        <div class="panel-header">
+          <div class="header-titles">
+            <div class="badge-tag"><i class="fa-solid fa-calendar-check"></i> Next 6 Months</div>
+            <h3>Detailed Predictive Outlook</h3>
+          </div>
+          <a href="/api/download/forecast" class="btn btn-primary btn-sm" id="btn-download-table-csv">
+            <i class="fa-solid fa-file-csv"></i> Save CSV
+          </a>
+        </div>
+        <p class="panel-sub">
+          Tabular breakdown of projected consumption with monthly seasonal effects and month-over-month trend changes.
+        </p>
+
+        <div class="table-responsive">
+          <table class="data-table" id="forecast-table">
+            <thead>
+              <tr>
+                <th>Forecast Month</th>
+                <th>Predicted Demand</th>
+                <th>Seasonal Impact</th>
+                <th>Trend Direction</th>
+              </tr>
+            </thead>
+            <tbody id="forecast-table-body">
+              <tr>
+                <td colspan="4" class="text-center loading-row">
+                  <i class="fa-solid fa-spinner fa-spin"></i> Loading predictions...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="table-note">
+          <i class="fa-solid fa-calculator"></i> Predictions are generated using: <code>Y(t) = Intercept + Slope × t + Seasonal_Factor(Month)</code>
+        </div>
+      </div>
+
+      <!-- Right Column: Monthly Seasonal Decomposition Chart -->
+      <div class="panel-card" id="seasonality-section">
+        <div class="panel-header">
+          <div class="header-titles">
+            <div class="badge-tag"><i class="fa-solid fa-cloud-sun"></i> Seasonality Analysis</div>
+            <h3>Monthly Seasonal Effects</h3>
+          </div>
+          <span class="info-pill"><i class="fa-solid fa-rotate"></i> 12-Month Cycle</span>
+        </div>
+        <p class="panel-sub">
+          Calculated average deviation (in megaliters) from the baseline linear trend for each calendar month. Positive bars reflect peak summer consumption; negative bars indicate lower winter demand.
+        </p>
+
+        <div class="canvas-wrapper-sm">
+          <canvas id="seasonalChart" aria-label="Bar chart showing monthly seasonal effects in megaliters"></canvas>
+        </div>
+
+        <div class="seasonal-summary" id="seasonal-summary-text">
+          <div class="season-badge high">
+            <i class="fa-solid fa-fire"></i> Peak Month: <strong id="peak-season-month">July (+17.0 ML)</strong>
+          </div>
+          <div class="season-badge low">
+            <i class="fa-solid fa-snowflake"></i> Lowest Month: <strong id="low-season-month">January (-12.0 ML)</strong>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- CSV Data Upload & Dataset Management Section -->
+    <section class="panel-section" id="upload-section">
+      <div class="panel-card upload-card">
+        <div class="panel-header">
+          <div class="header-titles">
+            <div class="badge-tag"><i class="fa-solid fa-upload"></i> Dataset Ingestion</div>
+            <h2>Upload Custom Monthly Water Consumption Data</h2>
+            <p class="panel-sub">
+              Upload your own municipal water readings to instantly retrain the trend analysis, recalibrate seasonal indices, re-evaluate MAE, and generate custom predictions.
+            </p>
+          </div>
+          <div class="upload-top-actions">
+            <a href="/api/download/sample" class="btn btn-outline btn-sm" id="btn-download-sample">
+              <i class="fa-solid fa-download"></i> Download Sample CSV
+            </a>
+            <button class="btn btn-danger-soft btn-sm" id="btn-reset-data" onclick="resetToSampleData()">
+              <i class="fa-solid fa-arrow-rotate-left"></i> Reset to Sample Data
+            </button>
+          </div>
+        </div>
+
+        <div class="upload-grid">
+          
+          <!-- Drag and Drop Area -->
+          <div class="dropzone" id="dropzone">
+            <input type="file" id="csv-file-input" accept=".csv" class="file-input" aria-label="Upload CSV File">
+            <div class="dropzone-inner">
+              <div class="dropzone-icon">
+                <i class="fa-solid fa-cloud-arrow-up"></i>
+              </div>
+              <h4>Drag &amp; Drop CSV File Here</h4>
+              <p>or click to browse your local computer</p>
+              <span class="file-format-badge">Supported format: .csv</span>
+              <div id="selected-file-display" class="selected-file-display" style="display: none;">
+                <i class="fa-solid fa-file-csv"></i>
+                <span id="selected-file-name">filename.csv</span>
+                <span id="selected-file-size">(0 KB)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Expected Format Specifications & Validation Rules -->
+          <div class="format-spec-box">
+            <h4><i class="fa-solid fa-circle-check"></i> Expected CSV Format &amp; Validation</h4>
+            <p class="format-desc">Ensure your file meets the following specifications for reliable parsing:</p>
+            
+            <div class="code-preview">
+              <div class="code-header">sample_format.csv</div>
+              <pre><code>month,consumption_megaliters
+2022-01,486
+2022-02,491
+2022-03,500
+2022-04,508
+...</code></pre>
+            </div>
+
+            <ul class="spec-list">
+              <li><strong>Columns:</strong> Must include <code>month</code> and <code>consumption_megaliters</code>.</li>
+              <li><strong>Dates:</strong> <code>YYYY-MM</code> (e.g., <code>2022-01</code>) or <code>YYYY-MM-DD</code> format.</li>
+              <li><strong>Values:</strong> Positive numeric values in megaliters.</li>
+              <li><strong>Continuity:</strong> Minimum 12 consecutive months required for seasonal decomposition.</li>
+              <li><strong>Integrity:</strong> System checks for missing fields, duplicate months, and invalid numbers.</li>
+            </ul>
+
+            <div class="upload-action-row">
+              <button class="btn btn-primary btn-lg" id="btn-submit-upload" onclick="uploadCsvFile()">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Upload &amp; Regenerate Predictions
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Model Evaluation & MAE Explanation Section (Mandatory Requirement) -->
+    <section class="panel-section" id="mae-section">
+      <div class="panel-card mae-explanation-card">
+        <div class="panel-header">
+          <div class="header-titles">
+            <div class="badge-tag"><i class="fa-solid fa-square-root-variable"></i> Statistical Evaluation</div>
+            <h2>Mean Absolute Error (MAE) &amp; Model Formulation</h2>
+          </div>
+        </div>
+
+        <div class="mae-highlight-box">
+          <div class="quote-icon"><i class="fa-solid fa-quote-left"></i></div>
+          <blockquote class="mae-official-quote">
+            "Mean Absolute Error measures the average absolute difference between actual and predicted water consumption. Lower MAE generally indicates better predictions."
+          </blockquote>
+        </div>
+
+        <div class="mae-details-grid">
+          
+          <div class="mae-detail-item">
+            <h4><i class="fa-solid fa-flask-vial"></i> Rigorous Train-Test Validation</h4>
+            <p>
+              To ensure true predictive validity and avoid fabricated metrics, the system performs historical back-testing:
+            </p>
+            <ul>
+              <li>The dataset is split into a <strong>training segment</strong> (earliest months) and a <strong>test segment</strong> (last 6 historical months).</li>
+              <li>The model fits its trend and seasonality strictly on the training partition.</li>
+              <li>Forecasts are generated for the test months and compared against known actual records using:
+                <br>
+                <code>MAE = (1 / n) × Σ |Actual(i) - Predicted(i)|</code>
+              </li>
+              <li>Current Test Set MAE: <strong id="mae-formula-val">1.67 Megaliters</strong> (MAPE: <strong id="mape-formula-val">0.28%</strong>).</li>
+            </ul>
+          </div>
+
+          <div class="mae-detail-item">
+            <h4><i class="fa-solid fa-diagram-project"></i> Mathematical Formulation</h4>
+            <p>The time-series forecasting model decomposes consumption into two additive components:</p>
+            <div class="formula-box">
+              <div class="formula-title">Forecasting Equation</div>
+              <div class="formula-math">
+                Y(t) = β₀ + β₁ · t + S(m)
+              </div>
+              <div class="formula-params">
+                <div><span>β₀ (Intercept):</span> <strong id="formula-intercept">--</strong></div>
+                <div><span>β₁ (Slope):</span> <strong id="formula-slope">--</strong> ML / month</div>
+                <div><span>S(m):</span> Monthly seasonal residual adjustment</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Historical Test Set Validation Table Accordion -->
+        <div class="test-set-accordion">
+          <button class="accordion-toggle" onclick="toggleTestSetTable()">
+            <span><i class="fa-solid fa-table-cells"></i> View Historical 6-Month Test Set Evaluation Breakdown</span>
+            <i class="fa-solid fa-chevron-down" id="accordion-arrow"></i>
+          </button>
+          <div class="accordion-body" id="test-set-accordion-body" style="display: none;">
+            <p class="table-sub">Direct comparison of actual historical readings vs. model back-test predictions on the held-out test months:</p>
+            <div class="table-responsive">
+              <table class="data-table-sm" id="test-evaluation-table">
+                <thead>
+                  <tr>
+                    <th>Test Month</th>
+                    <th>Known Actual (ML)</th>
+                    <th>Back-test Prediction (ML)</th>
+                    <th>Absolute Error (ML)</th>
+                    <th>Percentage Error (%)</th>
+                  </tr>
+                </thead>
+                <tbody id="test-evaluation-tbody">
+                  <tr><td colspan="5" class="text-center">Loading test evaluation...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Comprehensive Project Information Section (Suitable for College Viva / Demo) -->
+    <section class="panel-section" id="methodology-section">
+      <div class="panel-card project-info-card">
+        <div class="panel-header">
+          <div class="header-titles">
+            <div class="badge-tag"><i class="fa-solid fa-book-bookmark"></i> College Project Documentation</div>
+            <h2>Urban Water Consumption Analysis and Forecasting System</h2>
+            <p class="panel-sub">
+              Academic project documentation detailing system architecture, mathematical methodology, technology stack, and municipal applications.
+            </p>
+          </div>
+        </div>
+
+        <div class="info-tabs">
+          <button class="tab-btn active" onclick="switchInfoTab('objective')"><i class="fa-solid fa-bullseye"></i> Objective</button>
+          <button class="tab-btn" onclick="switchInfoTab('methodology')"><i class="fa-solid fa-gears"></i> Methodology</button>
+          <button class="tab-btn" onclick="switchInfoTab('technologies')"><i class="fa-solid fa-microchip"></i> Technologies</button>
+          <button class="tab-btn" onclick="switchInfoTab('applications')"><i class="fa-solid fa-city"></i> Real-World Applications</button>
+        </div>
+
+        <div class="tab-content" id="tab-objective">
+          <h3><i class="fa-solid fa-bullseye"></i> System Objective</h3>
+          <p>
+            Rapid urbanization and climate variability place unprecedented strain on municipal water utilities. Traditional water governance often relies on static historical averages, leading to reservoir shortages during unexpected heat waves or excessive pumping costs during low-demand periods.
+          </p>
+          <p>
+            The primary objective of the <strong>Urban Water Consumption Analysis and Forecasting System</strong> is to build a robust, scalable, and interpretable analytical system that:
+          </p>
+          <ul class="styled-list">
+            <li>Ingests real-world monthly municipal water consumption time-series data.</li>
+            <li>Separates underlying long-term structural demographic growth from cyclical annual seasonal patterns.</li>
+            <li>Produces an accurate 6-month prospective demand outlook to guide water authority procurement and reservoir management.</li>
+            <li>Validates model reliability using real historical test sets with Mean Absolute Error (MAE) and Mean Absolute Percentage Error (MAPE).</li>
+            <li>Provides an intuitive, responsive dashboard interface accessible to municipal planners and non-technical stakeholders.</li>
+          </ul>
+        </div>
+
+        <div class="tab-content" id="tab-methodology" style="display: none;">
+          <h3><i class="fa-solid fa-gears"></i> Mathematical &amp; Algorithmic Methodology</h3>
+          <p>The system utilizes Classical Time-Series Additive Decomposition comprising three sequential stages:</p>
+          <div class="methodology-steps">
+            <div class="step-card">
+              <div class="step-num">1</div>
+              <h4>Ordinary Least Squares (OLS) Trend Analysis</h4>
+              <p>
+                Calculates the linear baseline trajectory across time indices <code>x = [0, 1, ..., N-1]</code>. 
+                Slope <code>β₁ = Σ(x - x̄)(y - ȳ) / Σ(x - x̄)²</code> and Intercept <code>β₀ = ȳ - β₁x̄</code> establish whether the city exhibits an expanding or declining consumption trend.
+              </p>
+            </div>
+            <div class="step-card">
+              <div class="step-num">2</div>
+              <h4>Monthly Seasonal Residual Decomposition</h4>
+              <p>
+                For each observation, the linear trend is subtracted to compute monthly residuals: <code>Residual(t) = Actual(t) - Trend(t)</code>. Residuals are grouped by calendar month (1 to 12), averaged, and normalized around zero to yield pure seasonal coefficients.
+              </p>
+            </div>
+            <div class="step-card">
+              <div class="step-num">3</div>
+              <h4>Out-of-Sample Forecasting &amp; Back-Testing</h4>
+              <p>
+                Future projections are synthesized: <code>Forecast(t) = β₀ + β₁·(N + offset) + Seasonal_Effect(Month)</code>.
+                Validation splits the data into training (historical up to N-6) and testing (final 6 months) to calculate real MAE.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-technologies" style="display: none;">
+          <h3><i class="fa-solid fa-microchip"></i> Technology Stack</h3>
+          <div class="tech-grid">
+            <div class="tech-item">
+              <div class="tech-icon"><i class="fa-brands fa-python"></i></div>
+              <h4>Python Flask</h4>
+              <p>Lightweight, asynchronous-ready WSGI web framework delivering dynamic RESTful APIs and file streaming.</p>
+            </div>
+            <div class="tech-item">
+              <div class="tech-icon"><i class="fa-solid fa-chart-pie"></i></div>
+              <h4>Chart.js 4</h4>
+              <p>High-performance HTML5 canvas charting library delivering interactive tooltips, legends, and animations.</p>
+            </div>
+            <div class="tech-item">
+              <div class="tech-icon"><i class="fa-brands fa-html5"></i></div>
+              <h4>HTML5 &amp; Vanilla CSS</h4>
+              <p>Semantic markup with modern CSS custom properties, responsive grid/flexbox, glassmorphism, and water animations.</p>
+            </div>
+            <div class="tech-item">
+              <div class="tech-icon"><i class="fa-brands fa-js"></i></div>
+              <h4>JavaScript (ES6+)</h4>
+              <p>Vanilla asynchronous fetch API, drag-and-drop CSV parser, and responsive chart re-rendering.</p>
+            </div>
+            <div class="tech-item">
+              <div class="tech-icon"><i class="fa-solid fa-file-csv"></i></div>
+              <h4>Python CSV &amp; Statistics</h4>
+              <p>Pure Python standard library statistical modeling (mean, OLS, residuals) ensuring zero heavy binary bloat.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-applications" style="display: none;">
+          <h3><i class="fa-solid fa-city"></i> Real-World Municipal Applications</h3>
+          <div class="applications-grid">
+            <div class="app-card">
+              <i class="fa-solid fa-faucet-drip"></i>
+              <h4>Reservoir Storage Planning</h4>
+              <p>Enables water boards to anticipate seasonal drawdowns and regulate inter-basin water transfers before reservoir depletion occurs.</p>
+            </div>
+            <div class="app-card">
+              <i class="fa-solid fa-bolt"></i>
+              <h4>Pumping Energy Optimization</h4>
+              <p>Utilities can schedule energy-intensive water pumping during off-peak electricity tariff hours based on accurate daily/monthly demand projections.</p>
+            </div>
+            <div class="app-card">
+              <i class="fa-solid fa-triangle-exclamation"></i>
+              <h4>Drought &amp; Scarcity Preparedness</h4>
+              <p>Provides early warning indicators when observed consumption significantly exceeds predicted baseline thresholds.</p>
+            </div>
+            <div class="app-card">
+              <i class="fa-solid fa-hand-holding-dollar"></i>
+              <h4>Infrastructure Budgeting</h4>
+              <p>Provides municipal city councils with mathematically sound 5-to-10 year expansion justifications for water treatment plant expansions.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Professional Footer -->
+  <footer class="footer">
+    <div class="footer-container">
+      <div class="footer-left">
+        <div class="footer-brand">
+          <i class="fa-solid fa-droplet footer-drop"></i>
+          <span>AquaPulse Metro Analytics</span>
+        </div>
+        <p class="footer-copy">
+          Urban Water Consumption Analysis and Forecasting System &bull; Final Year Engineering Project Demonstration.
+        </p>
+      </div>
+      <div class="footer-right">
+        <div class="footer-links">
+          <a href="#top-nav"><i class="fa-solid fa-arrow-up"></i> Back to Top</a>
+          <a href="/api/download/sample"><i class="fa-solid fa-file-arrow-down"></i> Sample Data</a>
+          <a href="/api/download/forecast"><i class="fa-solid fa-download"></i> Forecast CSV</a>
+        </div>
+        <p class="footer-academic">Academic Project &bull; Built with Flask &amp; Chart.js</p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Application Logic -->
+  <script src="/static/js/script.js"></script>
+</body>
+</html>

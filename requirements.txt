@@ -1,0 +1,4 @@
+# Urban Water Consumption Analysis and Forecasting System
+# Final Year Project Dependencies
+
+Flask>=3.0.0

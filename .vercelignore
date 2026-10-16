@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.vscode/
+.git/
+*.png
+student_*.csv
+cleaned_student_data.csv
+NEWCODE.PY
+VAC*.PY
+vac*
+vaa*
+lr.py
