@@ -1,16 +1,10 @@
 /**
  * Urban Water Consumption Analysis and Forecasting System
- * Client-Side JavaScript Logic
+ * Client-Side JavaScript Logic & Universal Time-Series Engine
  * 
- * Features:
- * - Dynamic data fetching from Flask REST API
- * - Chart.js interactive time-series chart with actual vs forecast lines and boundary indicator
- * - Chart.js seasonal effects bar chart
- * - Dynamic KPI counters & statistical cards
- * - Real historical test set MAE & formula calculation
- * - Drag-and-drop CSV upload with thorough validation & error toasts
- * - CSV download triggers and sample reset
- * - Timeframe filtering (All, 24M, 12M)
+ * Works seamlessly in both environments:
+ * 1. GitHub Pages (Pure Client-Side Static Mode - 100% in-browser math engine)
+ * 2. Flask / Vercel (Backend REST API Mode)
  */
 
 // Global state variables
@@ -19,6 +13,7 @@ let consumptionChart = null;
 let seasonalChart = null;
 let selectedFile = null;
 let currentTimeframe = 'all';
+let isStaticMode = false;
 
 // Formatter utilities
 const numberFormatter = new Intl.NumberFormat('en-US', {
@@ -52,6 +47,8 @@ function showAlert(message, type = 'info') {
   const messageEl = document.getElementById('alert-message');
   const icon = document.getElementById('alert-icon');
 
+  if (!container || !content) return;
+
   content.className = `alert-content ${type}`;
   messageEl.textContent = message;
 
@@ -65,7 +62,6 @@ function showAlert(message, type = 'info') {
 
   container.style.display = 'block';
 
-  // Auto hide after 6 seconds
   clearTimeout(window.alertTimer);
   window.alertTimer = setTimeout(() => {
     closeAlert();
@@ -74,13 +70,340 @@ function showAlert(message, type = 'info') {
 
 function closeAlert() {
   const container = document.getElementById('alert-container');
-  container.style.display = 'none';
+  if (container) container.style.display = 'none';
+}
+
+/* ==========================================================================
+   Client-Side Time-Series Forecasting Engine (For GitHub Pages Static Hosting)
+   Matches forecasting.py logic 100%
+   ========================================================================== */
+
+function generateSampleDataClient() {
+  const seasonalPattern = [-12, -10, -4, 2, 8, 14, 17, 15, 8, 2, -5, -10];
+  const values = [];
+  const today = new Date();
+  const currentMonthIdx = today.getFullYear() * 12 + today.getMonth();
+  const firstMonthIdx = currentMonthIdx - 47;
+
+  for (let i = 0; i < 48; i++) {
+    const totalMonth = firstMonthIdx + i;
+    const year = Math.floor(totalMonth / 12);
+    const month = (totalMonth % 12) + 1;
+    const monthStr = `${year}-${String(month).padStart(2, '0')}`;
+    const consumption = 500 + 2 * i + seasonalPattern[month - 1] + (i % 5 - 2);
+    values.push({
+      dateStr: monthStr,
+      year: year,
+      month: month,
+      consumption: parseFloat(consumption.toFixed(2))
+    });
+  }
+  return values;
+}
+
+function getNextMonthDate(year, month) {
+  if (month === 12) {
+    return { year: year + 1, month: 1 };
+  }
+  return { year: year, month: month + 1 };
+}
+
+function fitModelClient(history) {
+  const n = history.length;
+  const xValues = history.map((_, idx) => idx);
+  const yValues = history.map(item => item.consumption);
+
+  const xMean = xValues.reduce((a, b) => a + b, 0) / n;
+  const yMean = yValues.reduce((a, b) => a + b, 0) / n;
+
+  let denominator = 0;
+  let numerator = 0;
+  for (let i = 0; i < n; i++) {
+    const xDiff = xValues[i] - xMean;
+    numerator += xDiff * (yValues[i] - yMean);
+    denominator += xDiff * xDiff;
+  }
+
+  const slope = denominator === 0 ? 0 : numerator / denominator;
+  const intercept = yMean - slope * xMean;
+
+  // Monthly residuals 1..12
+  const monthlyResiduals = {};
+  for (let m = 1; m <= 12; m++) monthlyResiduals[m] = [];
+
+  history.forEach((item, idx) => {
+    const trend = intercept + slope * idx;
+    monthlyResiduals[item.month].push(item.consumption - trend);
+  });
+
+  const seasonalEffects = {};
+  let seasonalSum = 0;
+  for (let m = 1; m <= 12; m++) {
+    const res = monthlyResiduals[m];
+    const avg = res.length > 0 ? res.reduce((a, b) => a + b, 0) / res.length : 0;
+    seasonalEffects[m] = avg;
+    seasonalSum += avg;
+  }
+
+  const seasonalAvg = seasonalSum / 12;
+  for (let m = 1; m <= 12; m++) {
+    seasonalEffects[m] = seasonalEffects[m] - seasonalAvg;
+  }
+
+  return { intercept, slope, seasonalEffects };
+}
+
+function predictClient(history, futureDates, modelParams) {
+  const { intercept, slope, seasonalEffects } = modelParams;
+  const baseLen = history.length;
+
+  return futureDates.map((item, offset) => {
+    const pred = intercept + slope * (baseLen + offset) + (seasonalEffects[item.month] || 0);
+    return {
+      month: `${item.year}-${String(item.month).padStart(2, '0')}`,
+      year: item.year,
+      monthNum: item.month,
+      consumption: Math.max(0, parseFloat(pred.toFixed(2)))
+    };
+  });
+}
+
+function evaluateModelMAEClient(history, testMonths = 6) {
+  const total = history.length;
+  const effectiveTest = Math.min(testMonths, Math.max(2, Math.floor(total / 4)));
+  const trainData = history.slice(0, total - effectiveTest);
+  const testData = history.slice(total - effectiveTest);
+
+  const model = fitModelClient(trainData);
+  const testFuture = testData.map(item => ({ year: item.year, month: item.month }));
+  const testPredictions = predictClient(trainData, testFuture, model);
+
+  const comparisons = [];
+  let errorSum = 0;
+  let pctErrorSum = 0;
+
+  for (let i = 0; i < testData.length; i++) {
+    const act = testData[i].consumption;
+    const pred = testPredictions[i].consumption;
+    const absErr = Math.abs(act - pred);
+    const pctErr = act > 0 ? (absErr / act) * 100 : 0;
+    errorSum += absErr;
+    pctErrorSum += pctErr;
+
+    comparisons.push({
+      month: testData[i].dateStr,
+      actual: act,
+      predicted: pred,
+      absolute_error: parseFloat(absErr.toFixed(2)),
+      percentage_error: parseFloat(pctErr.toFixed(2))
+    });
+  }
+
+  const mae = parseFloat((errorSum / testData.length).toFixed(2));
+  const mape = parseFloat((pctErrorSum / testData.length).toFixed(2));
+
+  return { mae, mape, test_months_count: effectiveTest, test_comparisons: comparisons };
+}
+
+function parseCSVClient(csvContent) {
+  if (!csvContent || !csvContent.trim()) {
+    throw new Error('Uploaded file is empty.');
+  }
+
+  const lines = csvContent.replace(/^\uFEFF/, '').split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  if (lines.length < 2) {
+    throw new Error('CSV must contain a header and at least 12 rows of data.');
+  }
+
+  const delimiter = lines[0].includes(';') && (lines[0].split(';').length > lines[0].split(',').length) ? ';' : ',';
+  const header = lines[0].split(delimiter).map(c => c.trim().toLowerCase());
+
+  let monthCol = header.findIndex(c => ['month', 'date', 'period', 'timestamp'].some(term => c.includes(term)));
+  let valCol = header.findIndex(c => ['consumption', 'megaliters', 'usage', 'volume', 'value'].some(term => c.includes(term)));
+
+  if (monthCol === -1 && header.length >= 2) monthCol = 0;
+  if (valCol === -1 && header.length >= 2) valCol = 1;
+
+  if (monthCol === -1 || valCol === -1) {
+    throw new Error("CSV header must contain 'month' and 'consumption_megaliters' columns.");
+  }
+
+  const recordsMap = new Map();
+  const dateRegex = /^(\d{4})[-/](0[1-9]|1[0-2])(?:[-/](0[1-9]|[12]\d|3[01]))?$/;
+
+  for (let i = 1; i < lines.length; i++) {
+    const parts = lines[i].split(delimiter).map(p => p.trim());
+    if (parts.length <= Math.max(monthCol, valCol)) continue;
+
+    const rawMonth = parts[monthCol];
+    const rawVal = parts[valCol];
+
+    if (!rawMonth || !rawVal) {
+      throw new Error(`Line ${i + 1}: Missing values detected.`);
+    }
+
+    const match = rawMonth.match(dateRegex);
+    if (!match) {
+      throw new Error(`Line ${i + 1}: Invalid date '${rawMonth}'. Expected 'YYYY-MM' (e.g., 2022-01).`);
+    }
+
+    const year = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10);
+    const dateKey = `${year}-${String(month).padStart(2, '0')}`;
+
+    const numVal = parseFloat(rawVal.replace(/[$,]/g, ''));
+    if (isNaN(numVal) || numVal <= 0) {
+      throw new Error(`Line ${i + 1}: Invalid consumption value '${rawVal}'. Must be positive number.`);
+    }
+
+    if (recordsMap.has(dateKey)) {
+      throw new Error(`Line ${i + 1}: Duplicate month '${dateKey}' detected.`);
+    }
+
+    recordsMap.set(dateKey, { dateStr: dateKey, year, month, consumption: numVal });
+  }
+
+  const sorted = Array.from(recordsMap.values()).sort((a, b) => a.dateStr.localeCompare(b.dateStr));
+  if (sorted.length < 12) {
+    throw new Error(`Dataset contains only ${sorted.length} months. At least 12 months are required for seasonal analysis.`);
+  }
+
+  return sorted;
+}
+
+function performFullAnalysisClient(history) {
+  const n = history.length;
+  const values = history.map(item => item.consumption);
+  const total = values.reduce((a, b) => a + b, 0);
+  const avg = total / n;
+  const minVal = Math.min(...values);
+  const maxVal = Math.max(...values);
+
+  const minItem = history.find(item => item.consumption === minVal);
+  const maxItem = history.find(item => item.consumption === maxVal);
+
+  const model = fitModelClient(history);
+  const evalResult = evaluateModelMAEClient(history, 6);
+
+  // Future 6 months
+  const futureDates = [];
+  let curr = { year: history[n - 1].year, month: history[n - 1].month };
+  for (let i = 0; i < 6; i++) {
+    curr = getNextMonthDate(curr.year, curr.month);
+    futureDates.push({ year: curr.year, month: curr.month });
+  }
+
+  const futurePredictions = predictClient(history, futureDates, model);
+  const latestActual = history[n - 1].consumption;
+
+  let prev = latestActual;
+  const forecastList = futurePredictions.map(item => {
+    const diff = item.consumption - prev;
+    const pct = prev > 0 ? (diff / prev) * 100 : 0;
+    const isUp = item.consumption >= prev;
+    const sEffect = model.seasonalEffects[item.monthNum] || 0;
+    prev = item.consumption;
+
+    return {
+      month: item.month,
+      display_month: formatMonthName(item.month),
+      consumption: item.consumption,
+      seasonal_effect: parseFloat(sEffect.toFixed(2)),
+      mom_change: parseFloat(diff.toFixed(2)),
+      mom_percent: parseFloat(pct.toFixed(1)),
+      is_increasing: isUp
+    };
+  });
+
+  const nextMonthPred = forecastList[0].consumption;
+  const nextDiff = nextMonthPred - latestActual;
+  const nextPct = latestActual > 0 ? (nextDiff / latestActual) * 100 : 0;
+
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const seasonalBreakdown = [];
+  for (let m = 1; m <= 12; m++) {
+    seasonalBreakdown.push({
+      month_num: m,
+      month_name: monthNames[m - 1],
+      effect: parseFloat(model.seasonalEffects[m].toFixed(2))
+    });
+  }
+
+  const slope = model.slope;
+  let trendDirection = 'Stable';
+  if (slope > 0.05) trendDirection = 'Increasing';
+  else if (slope < -0.05) trendDirection = 'Decreasing';
+
+  return {
+    unit: 'megaliters',
+    total_historical_consumption: parseFloat(total.toFixed(2)),
+    average_monthly_consumption: parseFloat(avg.toFixed(2)),
+    historical_count: n,
+    start_month: formatMonthName(history[0].dateStr),
+    end_month: formatMonthName(history[n - 1].dateStr),
+    latest_month: history[n - 1].dateStr,
+    latest_consumption: latestActual,
+    min_record: { month: formatMonthName(minItem.dateStr), value: minItem.consumption },
+    max_record: { month: formatMonthName(maxItem.dateStr), value: maxItem.consumption },
+    trend_direction: trendDirection,
+    slope_monthly: parseFloat(slope.toFixed(3)),
+    annual_trend_change: parseFloat((slope * 12).toFixed(2)),
+    intercept: parseFloat(model.intercept.toFixed(2)),
+    next_month: forecastList[0].month,
+    next_month_consumption: nextMonthPred,
+    next_month_diff: parseFloat(nextDiff.toFixed(2)),
+    next_month_pct: parseFloat(nextPct.toFixed(1)),
+    mae: evalResult.mae,
+    mape: evalResult.mape,
+    test_months_count: evalResult.test_months_count,
+    test_comparisons: evalResult.test_comparisons,
+    forecast: forecastList,
+    history: history.map(item => ({
+      month: item.dateStr,
+      display_month: formatMonthName(item.dateStr),
+      consumption: item.consumption
+    })),
+    seasonal_effects: seasonalBreakdown
+  };
 }
 
 /**
- * Custom vertical boundary line plugin for Chart.js
- * Draws a clean dashed indicator where the forecast begins
+ * Trigger browser file download via Blob URL
  */
+function downloadBlob(content, filename, mimeType = 'text/csv;charset=utf-8;') {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function exportForecastCSVClient(forecasts) {
+  let csv = 'month,predicted_consumption_megaliters,seasonal_effect_megaliters,trend_status\n';
+  forecasts.forEach(item => {
+    const trend = item.is_increasing ? 'Increasing' : 'Decreasing';
+    csv += `${item.month},${item.consumption},${item.seasonal_effect},${trend}\n`;
+  });
+  return csv;
+}
+
+function exportSampleCSVClient(history) {
+  let csv = 'month,consumption_megaliters\n';
+  history.forEach(item => {
+    csv += `${item.month || item.dateStr},${item.consumption}\n`;
+  });
+  return csv;
+}
+
+/* ==========================================================================
+   Chart.js Rendering Logic
+   ========================================================================== */
+
 const forecastBoundaryPlugin = {
   id: 'forecastBoundary',
   afterDraw: (chart) => {
@@ -104,7 +427,6 @@ const forecastBoundaryPlugin = {
     ctx.strokeStyle = '#64748b';
     ctx.stroke();
 
-    // Boundary label
     ctx.font = '600 11px Inter, sans-serif';
     ctx.fillStyle = '#475569';
     ctx.textAlign = 'center';
@@ -113,13 +435,11 @@ const forecastBoundaryPlugin = {
   }
 };
 
-/**
- * Render or update the Main Line Chart
- */
 function renderConsumptionChart(data, timeframe = 'all') {
-  const ctx = document.getElementById('consumptionChart').getContext('2d');
+  const canvas = document.getElementById('consumptionChart');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
   
-  // Filter history based on timeframe button
   let historyData = [...data.history];
   if (timeframe === 24 && historyData.length > 24) {
     historyData = historyData.slice(-24);
@@ -130,29 +450,24 @@ function renderConsumptionChart(data, timeframe = 'all') {
   const forecastData = [...data.forecast];
   const lastHistoryPoint = historyData[historyData.length - 1];
 
-  // Combined labels: filtered history months + forecast months
   const labels = [
     ...historyData.map(item => item.display_month || formatMonthName(item.month)),
     ...forecastData.map(item => item.display_month || formatMonthName(item.month))
   ];
 
-  // Actual series: values for history, null for forecast
   const actualValues = [
     ...historyData.map(item => item.consumption),
     ...forecastData.map(() => null)
   ];
 
-  // Forecast series: null for history except connecting the last history point, then forecast values
   const forecastValues = [
     ...historyData.slice(0, -1).map(() => null),
     lastHistoryPoint.consumption,
     ...forecastData.map(item => item.consumption)
   ];
 
-  // Boundary index in current view
   const boundaryIndex = historyData.length - 1;
 
-  // Background aquatic gradient for actuals
   const gradient = ctx.createLinearGradient(0, 0, 0, 400);
   gradient.addColorStop(0, 'rgba(2, 132, 199, 0.28)');
   gradient.addColorStop(1, 'rgba(2, 132, 199, 0.01)');
@@ -203,9 +518,7 @@ function renderConsumptionChart(data, timeframe = 'all') {
         intersect: false
       },
       plugins: {
-        legend: {
-          display: false // Using custom legend above chart
-        },
+        legend: { display: false },
         tooltip: {
           backgroundColor: 'rgba(15, 23, 42, 0.92)',
           titleFont: { family: 'Outfit', size: 13, weight: '700' },
@@ -228,10 +541,7 @@ function renderConsumptionChart(data, timeframe = 'all') {
       },
       scales: {
         x: {
-          grid: {
-            color: '#f1f5f9',
-            drawBorder: false
-          },
+          grid: { color: '#f1f5f9', drawBorder: false },
           ticks: {
             font: { family: 'Inter', size: 11 },
             color: '#64748b',
@@ -242,16 +552,11 @@ function renderConsumptionChart(data, timeframe = 'all') {
           }
         },
         y: {
-          grid: {
-            color: '#e2e8f0',
-            drawBorder: false
-          },
+          grid: { color: '#e2e8f0', drawBorder: false },
           ticks: {
             font: { family: 'Inter', size: 11 },
             color: '#64748b',
-            callback: function(value) {
-              return value + ' ML';
-            }
+            callback: function(value) { return value + ' ML'; }
           },
           title: {
             display: true,
@@ -270,20 +575,19 @@ function renderConsumptionChart(data, timeframe = 'all') {
   }
   consumptionChart = new Chart(ctx, chartConfig);
 
-  // Update chart counter label
-  document.getElementById('chart-point-count').textContent =
-    `Showing ${historyData.length} historical months + 6 forecast months`;
+  const countEl = document.getElementById('chart-point-count');
+  if (countEl) {
+    countEl.textContent = `Showing ${historyData.length} historical months + 6 forecast months`;
+  }
 }
 
-/**
- * Render or update Seasonal Effects Bar Chart
- */
 function renderSeasonalChart(seasonalEffects) {
-  const ctx = document.getElementById('seasonalChart').getContext('2d');
+  const canvas = document.getElementById('seasonalChart');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
   const labels = seasonalEffects.map(item => item.month_name);
   const values = seasonalEffects.map(item => item.effect);
 
-  // Color positive effects in warm amber/orange (summer peak) and negative in cool ocean blue
   const backgroundColors = values.map(val =>
     val >= 0 ? 'rgba(245, 158, 11, 0.85)' : 'rgba(2, 132, 199, 0.85)'
   );
@@ -291,7 +595,6 @@ function renderSeasonalChart(seasonalEffects) {
     val >= 0 ? '#d97706' : '#0284c7'
   );
 
-  // Identify peak and low
   let maxItem = seasonalEffects[0];
   let minItem = seasonalEffects[0];
   seasonalEffects.forEach(item => {
@@ -299,10 +602,10 @@ function renderSeasonalChart(seasonalEffects) {
     if (item.effect < minItem.effect) minItem = item;
   });
 
-  document.getElementById('peak-season-month').textContent =
-    `${maxItem.month_name} (${maxItem.effect >= 0 ? '+' : ''}${maxItem.effect} ML)`;
-  document.getElementById('low-season-month').textContent =
-    `${minItem.month_name} (${minItem.effect >= 0 ? '+' : ''}${minItem.effect} ML)`;
+  const peakEl = document.getElementById('peak-season-month');
+  const lowEl = document.getElementById('low-season-month');
+  if (peakEl) peakEl.textContent = `${maxItem.month_name} (${maxItem.effect >= 0 ? '+' : ''}${maxItem.effect} ML)`;
+  if (lowEl) lowEl.textContent = `${minItem.month_name} (${minItem.effect >= 0 ? '+' : ''}${minItem.effect} ML)`;
 
   const config = {
     type: 'bar',
@@ -345,9 +648,7 @@ function renderSeasonalChart(seasonalEffects) {
           ticks: {
             font: { family: 'Inter', size: 10 },
             color: '#64748b',
-            callback: function(val) {
-              return (val >= 0 ? '+' : '') + val;
-            }
+            callback: function(val) { return (val >= 0 ? '+' : '') + val; }
           },
           title: {
             display: true,
@@ -366,27 +667,20 @@ function renderSeasonalChart(seasonalEffects) {
   seasonalChart = new Chart(ctx, config);
 }
 
-/**
- * Populate KPI metric cards with dynamic backend values
- */
 function updateDashboardMetrics(data) {
-  // 1. Total Historical
   document.getElementById('kpi-total').textContent = integerFormatter.format(data.total_historical_consumption);
   document.getElementById('kpi-total-sub').textContent =
     `Across ${data.historical_count} recorded months (${data.start_month} – ${data.end_month})`;
 
-  // 2. Average Monthly
   document.getElementById('kpi-avg').textContent = numberFormatter.format(data.average_monthly_consumption);
   document.getElementById('kpi-avg-sub').textContent =
     `Peak: ${data.max_record.value} ML (${data.max_record.month})`;
 
-  // 3. Next Month Forecast
   document.getElementById('kpi-next').textContent = numberFormatter.format(data.next_month_consumption);
   document.getElementById('kpi-next-month').textContent =
     `Target: ${formatMonthName(data.next_month)}`;
 
   const nextPill = document.getElementById('kpi-next-pill');
-  const nextDiffEl = document.getElementById('kpi-next-diff');
   const diff = data.next_month_diff;
   const pct = data.next_month_pct;
   const isUp = diff >= 0;
@@ -396,13 +690,11 @@ function updateDashboardMetrics(data) {
     ? `<i class="fa-solid fa-arrow-trend-up"></i> +${numberFormatter.format(diff)} ML (+${pct}%)`
     : `<i class="fa-solid fa-arrow-trend-down"></i> ${numberFormatter.format(diff)} ML (${pct}%)`;
 
-  // 4. Model Error (MAE)
   document.getElementById('kpi-mae').textContent = numberFormatter.format(data.mae);
   document.getElementById('kpi-mae-sub').textContent =
     `MAPE: ${data.mape}% (Back-tested on ${data.test_months_count} months)`;
   document.getElementById('mae-badge').textContent = `MAE: ${data.mae} ML`;
 
-  // 5. Trend Indicator
   const trendEl = document.getElementById('kpi-trend');
   const trendSubEl = document.getElementById('kpi-trend-sub');
   const trendIcon = document.getElementById('trend-icon');
@@ -423,7 +715,6 @@ function updateDashboardMetrics(data) {
     trendIcon.className = 'fa-solid fa-arrows-left-right';
   }
 
-  // Header Source Meta
   const datasetNameEl = document.getElementById('dataset-name');
   if (data.is_custom_dataset) {
     datasetNameEl.innerHTML = `<span style="color: #38bdf8;">Custom Upload (${data.uploaded_filename || 'CSV Data'})</span>`;
@@ -432,18 +723,15 @@ function updateDashboardMetrics(data) {
   }
   document.getElementById('dataset-range').textContent = `${data.start_month} – ${data.end_month}`;
 
-  // MAE Section details
   document.getElementById('mae-formula-val').textContent = `${data.mae} Megaliters`;
   document.getElementById('mape-formula-val').textContent = `${data.mape}%`;
   document.getElementById('formula-intercept').textContent = `${data.intercept} ML`;
   document.getElementById('formula-slope').textContent = `${slopeSign}${data.slope_monthly}`;
 }
 
-/**
- * Populate 6-Month Forecast Table
- */
 function updateForecastTable(forecast) {
   const tbody = document.getElementById('forecast-table-body');
+  if (!tbody) return;
   tbody.innerHTML = '';
 
   forecast.forEach(item => {
@@ -481,11 +769,9 @@ function updateForecastTable(forecast) {
   });
 }
 
-/**
- * Populate Test Set Evaluation Table
- */
 function updateTestEvaluationTable(testComparisons) {
   const tbody = document.getElementById('test-evaluation-tbody');
+  if (!tbody) return;
   tbody.innerHTML = '';
 
   if (!testComparisons || testComparisons.length === 0) {
@@ -507,51 +793,47 @@ function updateTestEvaluationTable(testComparisons) {
 }
 
 /**
- * Fetch and refresh all dashboard data from backend API
+ * Universal Fetch: checks Flask API first; if unavailable (GitHub Pages), runs client-side engine!
  */
 async function fetchDashboardData() {
   const overlay = document.getElementById('chart-loading-overlay');
-  overlay.style.display = 'flex';
+  if (overlay) overlay.style.display = 'flex';
 
   try {
     const response = await fetch('/api/forecast');
-    if (!response.ok) {
-      throw new Error(`Server returned HTTP ${response.status}`);
-    }
-
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const result = await response.json();
-    if (!result.success) {
-      throw new Error(result.error || 'Failed to calculate predictions.');
-    }
-
+    if (!result.success) throw new Error(result.error);
     globalData = result.data;
-    updateDashboardMetrics(globalData);
-    renderConsumptionChart(globalData, currentTimeframe);
-    renderSeasonalChart(globalData.seasonal_effects);
-    updateForecastTable(globalData.forecast);
-    updateTestEvaluationTable(globalData.test_comparisons);
-
-  } catch (error) {
-    console.error('Error fetching dashboard data:', error);
-    showAlert(`Failed to load forecast data: ${error.message}`, 'error');
+    isStaticMode = false;
+  } catch (backendError) {
+    // Running in static environment (GitHub Pages)
+    isStaticMode = true;
+    const sampleHistory = generateSampleDataClient();
+    globalData = performFullAnalysisClient(sampleHistory);
+    globalData.is_custom_dataset = false;
   } finally {
-    overlay.style.display = 'none';
+    if (globalData) {
+      updateDashboardMetrics(globalData);
+      renderConsumptionChart(globalData, currentTimeframe);
+      renderSeasonalChart(globalData.seasonal_effects);
+      updateForecastTable(globalData.forecast);
+      updateTestEvaluationTable(globalData.test_comparisons);
+    }
+    if (overlay) overlay.style.display = 'none';
   }
 }
 
-/**
- * Change Timeframe Filter (All, 24M, 12M)
- */
 function setTimeframeFilter(timeframe) {
   currentTimeframe = timeframe;
   document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
 
   if (timeframe === 'all') {
-    document.getElementById('btn-filter-all').classList.add('active');
+    document.getElementById('btn-filter-all')?.classList.add('active');
   } else if (timeframe === 24) {
-    document.getElementById('btn-filter-24').classList.add('active');
+    document.getElementById('btn-filter-24')?.classList.add('active');
   } else if (timeframe === 12) {
-    document.getElementById('btn-filter-12').classList.add('active');
+    document.getElementById('btn-filter-12')?.classList.add('active');
   }
 
   if (globalData) {
@@ -559,15 +841,14 @@ function setTimeframeFilter(timeframe) {
   }
 }
 
-/**
- * Drag and Drop & File Input Setup
- */
 function initUploadHandlers() {
   const dropzone = document.getElementById('dropzone');
   const fileInput = document.getElementById('csv-file-input');
   const fileDisplay = document.getElementById('selected-file-display');
   const fileNameEl = document.getElementById('selected-file-name');
   const fileSizeEl = document.getElementById('selected-file-size');
+
+  if (!dropzone || !fileInput) return;
 
   fileInput.addEventListener('change', (e) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -597,21 +878,45 @@ function initUploadHandlers() {
     if (!file.name.toLowerCase().endsWith('.csv')) {
       showAlert('Invalid file type. Please upload a .csv file.', 'error');
       selectedFile = null;
-      fileDisplay.style.display = 'none';
+      if (fileDisplay) fileDisplay.style.display = 'none';
       return;
     }
     selectedFile = file;
-    fileNameEl.textContent = file.name;
+    if (fileNameEl) fileNameEl.textContent = file.name;
     const sizeKb = (file.size / 1024).toFixed(1);
-    fileSizeEl.textContent = `(${sizeKb} KB)`;
-    fileDisplay.style.display = 'inline-flex';
+    if (fileSizeEl) fileSizeEl.textContent = `(${sizeKb} KB)`;
+    if (fileDisplay) fileDisplay.style.display = 'inline-flex';
     showAlert(`Selected '${file.name}'. Click 'Upload & Regenerate Predictions' to proceed.`, 'info');
+  }
+
+  // Intercept Download buttons in static mode
+  const btnDlForecast = document.getElementById('btn-download-forecast-chart');
+  const btnDlTable = document.getElementById('btn-download-table-csv');
+  const btnDlSample = document.getElementById('btn-download-sample');
+
+  const handleDownloadForecast = (e) => {
+    if (isStaticMode && globalData) {
+      e.preventDefault();
+      const csv = exportForecastCSVClient(globalData.forecast);
+      downloadBlob(csv, 'urban_water_forecast.csv');
+    }
+  };
+
+  if (btnDlForecast) btnDlForecast.addEventListener('click', handleDownloadForecast);
+  if (btnDlTable) btnDlTable.addEventListener('click', handleDownloadForecast);
+
+  if (btnDlSample) {
+    btnDlSample.addEventListener('click', (e) => {
+      if (isStaticMode) {
+        e.preventDefault();
+        const sampleHistory = generateSampleDataClient();
+        const csv = exportSampleCSVClient(sampleHistory);
+        downloadBlob(csv, 'sample_water_consumption.csv');
+      }
+    });
   }
 }
 
-/**
- * Submit CSV file to Flask /api/upload endpoint
- */
 async function uploadCsvFile() {
   if (!selectedFile) {
     showAlert('Please select or drop a CSV file first.', 'error');
@@ -623,33 +928,42 @@ async function uploadCsvFile() {
   btnSubmit.disabled = true;
   btnSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Validating & Processing...';
 
-  const formData = new FormData();
-  formData.append('file', selectedFile);
-
   try {
-    const response = await fetch('/api/upload', {
-      method: 'POST',
-      body: formData
-    });
+    if (isStaticMode) {
+      // Static Mode (GitHub Pages): Read & Process directly in browser!
+      const text = await selectedFile.text();
+      const parsedHistory = parseCSVClient(text);
+      globalData = performFullAnalysisClient(parsedHistory);
+      globalData.is_custom_dataset = true;
+      globalData.uploaded_filename = selectedFile.name;
 
-    const result = await response.json();
+      showAlert(`Successfully loaded '${selectedFile.name}' with ${parsedHistory.length} monthly records.`, 'success');
+    } else {
+      // Backend Mode (Flask / Vercel): Send to /api/upload
+      const formData = new FormData();
+      formData.append('file', selectedFile);
 
-    if (!response.ok || !result.success) {
-      throw new Error(result.error || 'Failed to process CSV file.');
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to process CSV file.');
+      }
+
+      globalData = result.data;
+      showAlert(result.message || 'Dataset uploaded successfully!', 'success');
     }
 
-    showAlert(result.message || 'Dataset uploaded and verified successfully!', 'success');
-    
-    // Refresh dashboard with uploaded dataset
-    globalData = result.data;
     updateDashboardMetrics(globalData);
     renderConsumptionChart(globalData, currentTimeframe);
     renderSeasonalChart(globalData.seasonal_effects);
     updateForecastTable(globalData.forecast);
     updateTestEvaluationTable(globalData.test_comparisons);
 
-    // Smooth scroll back to chart
-    document.getElementById('chart-section').scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('chart-section')?.scrollIntoView({ behavior: 'smooth' });
 
   } catch (error) {
     console.error('Upload error:', error);
@@ -660,9 +974,6 @@ async function uploadCsvFile() {
   }
 }
 
-/**
- * Reset data back to default sample dataset
- */
 async function resetToSampleData() {
   const btnReset = document.getElementById('btn-reset-data');
   const originalHtml = btnReset.innerHTML;
@@ -670,20 +981,27 @@ async function resetToSampleData() {
   btnReset.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Resetting...';
 
   try {
-    const response = await fetch('/api/reset', { method: 'POST' });
-    const result = await response.json();
-
-    if (!response.ok || !result.success) {
-      throw new Error(result.error || 'Failed to reset data.');
+    if (isStaticMode) {
+      const sampleHistory = generateSampleDataClient();
+      globalData = performFullAnalysisClient(sampleHistory);
+      globalData.is_custom_dataset = false;
+      showAlert('Reset back to official municipal sample dataset.', 'info');
+    } else {
+      const response = await fetch('/api/reset', { method: 'POST' });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to reset data.');
+      }
+      globalData = result.data;
+      showAlert('Reset back to official municipal sample dataset.', 'info');
     }
 
     selectedFile = null;
-    document.getElementById('selected-file-display').style.display = 'none';
-    document.getElementById('csv-file-input').value = '';
+    const fileDisplay = document.getElementById('selected-file-display');
+    if (fileDisplay) fileDisplay.style.display = 'none';
+    const fileInput = document.getElementById('csv-file-input');
+    if (fileInput) fileInput.value = '';
 
-    showAlert('Reset back to official municipal sample dataset.', 'info');
-
-    globalData = result.data;
     updateDashboardMetrics(globalData);
     renderConsumptionChart(globalData, currentTimeframe);
     renderSeasonalChart(globalData.seasonal_effects);
@@ -698,25 +1016,20 @@ async function resetToSampleData() {
   }
 }
 
-/**
- * Toggle Test Set Evaluation breakdown accordion
- */
 function toggleTestSetTable() {
   const body = document.getElementById('test-set-accordion-body');
   const arrow = document.getElementById('accordion-arrow');
+  if (!body) return;
 
   if (body.style.display === 'none' || !body.style.display) {
     body.style.display = 'block';
-    arrow.className = 'fa-solid fa-chevron-up';
+    if (arrow) arrow.className = 'fa-solid fa-chevron-up';
   } else {
     body.style.display = 'none';
-    arrow.className = 'fa-solid fa-chevron-down';
+    if (arrow) arrow.className = 'fa-solid fa-chevron-down';
   }
 }
 
-/**
- * Switch Information Tabs for Project Documentation
- */
 function switchInfoTab(tabId) {
   const tabs = ['objective', 'methodology', 'technologies', 'applications'];
   tabs.forEach(id => {
@@ -734,7 +1047,6 @@ function switchInfoTab(tabId) {
   });
 }
 
-// Window resize handler for responsive charts
 let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
@@ -744,7 +1056,6 @@ window.addEventListener('resize', () => {
   }, 150);
 });
 
-// Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
   initUploadHandlers();
   fetchDashboardData();
